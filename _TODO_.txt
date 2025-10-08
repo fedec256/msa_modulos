@@ -1,0 +1,2 @@
+armar una función que agarre y haga simulaciones de montecarlo pero asigne evo_scores y se quede con 
+secuencias nuevas según el cambio en el evoscore

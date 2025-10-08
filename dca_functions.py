@@ -6,7 +6,6 @@ import prody
 import frustratometer
 import pickle
 
-import cazar_mariposas as cazar
 
 AA_dict_full_pydca_like = {"A": 0, "C": 1,"D": 2,"E": 3,"F": 4,"G": 5,"H": 6,"I": 7,"K": 8,"L": 9,"M": 10,"N": 11,
                                 "P": 12,"Q": 13,"R": 14,"S": 15,"T": 16,"V": 17,"W": 18,"Y": 19,"-": 20,'X':20,'Y':20,'Z':20,'B':20}
@@ -285,7 +284,7 @@ def campo_h(f,corr=1e-4): #fiajte que esto te devuelve cosas positivas!!!! y ser
 def gen_ind_model(fi, fij, corr = 1e-4):
     hi_ = campo_h(fi, corr)
     Jij_ =  np.zeros(fij.shape)
-    hi, Jij = cazar.zero_sum_gauge(hi_,Jij_)
+    hi, Jij = zero_sum_gauge(hi_,Jij_)
     return {"h":hi, "J":Jij}
 
 
