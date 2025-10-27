@@ -53,6 +53,14 @@ def MSA_to_numpy(MSA):
             MSA_np[seq,i] = a
     return MSA_np
 
+def numpy_to_MSA(MSA_numeric):
+    # hace lo opuesto a MSA_to_numpy: convierte índices numéricos en letras
+    MSA_letters = np.empty(MSA_numeric.shape, dtype='<U1')  # array de unicode 1 caracter
+    for seq in range(MSA_numeric.shape[0]):
+        for i in range(MSA_numeric.shape[1]):
+            MSA_letters[seq, i] = letters_dict[int(MSA_numeric[seq, i])]
+    return MSA_letters
+
 def msa_subset(msa_path, outfile_path, n, seqs_weights, file_format = 'fasta'):
     
     fasta_sequences = list(SeqIO.parse(msa_path, file_format))
