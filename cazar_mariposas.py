@@ -4,7 +4,7 @@ import frustratometer
 import pickle
 import os
 import time
-from alingments_functions import load_msa, msa_subset
+from alignments_functions import load_msa, msa_subset
 from dca_functions import load_potts
 
 def cargar_est_ref(structure_path, chain = None, maximum_contact_distance = 10.0, minimum_sequence_separation = 4):
