@@ -207,7 +207,7 @@ def load_potts(simetric_potts_model_path, file_format, return_awsem_model = Fals
         return potts_model_dca
 
 
-def trimm_potts_and_seq(potts, sequence, alphabet, return_positions = False):
+def trimm_potts_and_seq(potts, sequence, alphabet="ACDEFGHIKLMNPQRSTVWY", return_positions = False):
     valid_aas = set(alphabet)
     positions_to_keep = [i for i, aa in enumerate(sequence) if aa in valid_aas]
 #    positions_to_keep = [i for i, aa in enumerate(sequence) if aa != '-']
@@ -223,7 +223,7 @@ def trimm_potts_and_seq(potts, sequence, alphabet, return_positions = False):
     else:
         return potts_trimmed, seq_trimmed
 
-def trimm_vector_and_seq(vector, sequence, alphabet, return_positions = False):
+def trimm_vector_and_seq(vector, sequence, alphabet="ACDEFGHIKLMNPQRSTVWY", return_positions = False):
     valid_aas = set(alphabet)
     positions_to_keep = [i for i, aa in enumerate(sequence) if aa in valid_aas]
 #    positions_to_keep = [i for i, aa in enumerate(sequence) if aa != '-']
