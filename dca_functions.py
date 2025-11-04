@@ -223,6 +223,18 @@ def trimm_potts_and_seq(potts, sequence, alphabet, return_positions = False):
     else:
         return potts_trimmed, seq_trimmed
 
+def trimm_vector_and_seq(vector, sequence, alphabet, return_positions = False):
+    valid_aas = set(alphabet)
+    positions_to_keep = [i for i, aa in enumerate(sequence) if aa in valid_aas]
+#    positions_to_keep = [i for i, aa in enumerate(sequence) if aa != '-']
+    vector_trimmed = vector[positions_to_keep]
+    seq_trimmed = ''.join([sequence[i] for i in positions_to_keep])
+    
+    if return_positions ==True:
+        return vector_trimmed, seq_trimmed, positions_to_keep
+    else:
+        return vector_trimmed, seq_trimmed
+
 #Esta de acá abajo es para calcular la norma de Frobenius para plotear un mapa de contactos
 def Fnorm (J):
     
