@@ -61,6 +61,15 @@ def numpy_to_MSA(MSA_numeric):
             MSA_letters[seq, i] = letters_dict[int(MSA_numeric[seq, i])]
     return MSA_letters
 
+def write_fasta(seqs, names, outfile_path):
+    ofile = open(outfile_path, "w")
+    
+    for j in range(len(seqs)):
+        seq_j = "".join(np.array(seqs[j]).tolist())
+        ofile.write(">" + names[j] + "\n" + seq_j + "\n")
+    
+    ofile.close()  
+
 def msa_subset(msa_path, outfile_path, n, seqs_weights, file_format = 'fasta'):
     
     fasta_sequences = list(SeqIO.parse(msa_path, file_format))
