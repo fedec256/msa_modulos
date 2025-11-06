@@ -1,4 +1,3 @@
-    
 import pandas as pd
 import numpy as np
 from Bio import SeqIO
@@ -15,6 +14,8 @@ import os
 import pickle
 import frustratometer
 import prody
+from matplotlib.colors import TwoSlopeNorm, Normalize
+import matplotlib.colors as mcolors
 
 from scipy.spatial.distance import pdist,squareform
 import matplotlib.pyplot as plt
@@ -338,7 +339,163 @@ def box_plot_single_residue(df_seqs, dca_sr_mean, std_error, vmin_sr = None, vma
 
 
 
+def get_cmap_from_arg(color_scale):
+    """
+    Devuelve un objeto matplotlib Colormap a partir de:
+      - nombre de colormap (str),
+      - lista de colores (list),
+      - o un objeto Colormap ya instanciado.
+    """
+    if isinstance(color_scale, str):
+        cmap = cm.get_cmap(color_scale)
+    elif isinstance(color_scale, list):
+        cmap = mcolors.LinearSegmentedColormap.from_list('custom_cmap', color_scale, N=256)
+    elif isinstance(color_scale, mcolors.Colormap):
+        cmap = color_scale
+    else:
+        raise ValueError(f"color_scale must be a str, list, or Colormap instance, not {type(color_scale)}")
+    return cmap
 
+def color_pdb_by_vector(
+    pdb_path,
+    vector_to_project: np.ndarray,
+    vmax=None,
+    vmin=None,
+    highlighted_sites=None,
+    color_scale='viridis',
+    chain='A',
+    index_base=0,
+    highlight_style='stick',
+    sphere_color='#FFD700',
+    sphere_radius=1.2,
+    cartoon_radius=0.8,
+    opacity = 1.0
+):
+    """
+    Pinta un PDB con py3Dmol usando los valores en vector_to_project para colorear
+    residuo por residuo. Devuelve el objeto py3Dmol.view.
+    
+    Args:
+        pdb_path (str): ruta al archivo .pdb
+        vector_to_project (np.ndarray): array 1D con un valor por residuo (floats)
+        vmax, vmin (float|None): límites. Si None se usan max/min del vector.
+        highlighted_sites (list|np.ndarray|None): índices de residuos a resaltar
+            (ver index_base).
+        colormap (str): nombre de colormap de matplotlib (ej 'viridis').
+        chain (str): cadena por defecto para seleccionar en el pdb (ej 'A').
+        index_base (int): 0 si highlighted_sites usa indexing 0-based (default),
+            1 si usa 1-based (PDB style).
+        sphere_color (str): color hex de las esferas de resaltado.
+        sphere_radius (float): radio de las esferas de resaltado (Å).
+        cartoon_radius (float): grosor/escala para estilo cartoon (opcional).
+    Returns:
+        py3Dmol.view
+    """
+
+    # --- parse pdb, extrayendo CA por residuo (orden natural del archivo) ---
+    residues = []  # lista de dicts: {'chain','resSeq','resName','ca':(x,y,z)}
+    seen = set()
+    with open(pdb_path, 'r') as f:
+        for line in f:
+            if not (line.startswith('ATOM') or line.startswith('HETATM')):
+                continue
+            atom_name = line[12:16].strip()
+            resname = line[17:20].strip()
+            chain_id = line[21].strip() or ' '
+            resseq = line[22:26].strip()
+            icode = line[26].strip()
+            key = (chain_id, resseq, icode)
+            if atom_name == 'CA' and key not in seen:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                except ValueError:
+                    continue
+                residues.append({
+                    'chain': chain_id,
+                    'resSeq': int(resseq),
+                    'resName': resname,
+                    'ca': (x, y, z)
+                })
+                seen.add(key)
+
+    n_res = len(residues)
+    vector = np.asarray(vector_to_project, dtype=float).ravel()
+    if vector.size != n_res:
+        raise ValueError(f"Mismatch: vector length = {vector.size} but pdb has {n_res} residues (CA count). "
+                         "Si tu vector no comienza en la primera posición del PDB tendrás que alinear "
+                         "las posiciones (p.ej. con un argumento pdb_seq_beg en una versión futura).")
+
+    # --- determine vmin/vmax and normalization ---
+    if vmax is None:
+        vmax = float(np.nanmax(vector))
+    if vmin is None:
+        vmin = float(np.nanmin(vector))
+
+    # avoid degenerate case vmax == vmin
+    if np.isclose(vmax, vmin):
+        # expand a tiny bit so Normalize won't blow up
+        eps = 1e-6 if vmax == 0 else abs(vmax) * 1e-6
+        vmax = vmax + eps
+        vmin = vmin - eps
+
+    # choose norm: TwoSlopeNorm centered at 0 if 0 lies between vmin and vmax
+    if (vmin < 0) and (vmax > 0):
+        norm = TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+    else:
+        # all positive or all negative -> linear normalization
+        norm = Normalize(vmin=vmin, vmax=vmax)
+
+    cmap = get_cmap_from_arg(color_scale)
+
+    # map values -> hex colors
+    rgba_colors = cmap(norm(vector))  # Nx4
+    hex_colors = [mcolors.to_hex(rgba) for rgba in rgba_colors]
+
+    # --- build py3Dmol view and add PDB ---
+    view = py3Dmol.view(width=900, height=600)
+    with open(pdb_path, 'r') as f:
+        pdb_text = f.read()
+    view.addModel(pdb_text, 'pdb')
+    view.setStyle({'cartoon': {'radius': cartoon_radius,
+                              'opacity': opacity}})  # base style for everything
+    view.zoomTo()
+
+    # Apply per-residue colors by adding a style per-residue
+    # (py3Dmol acepta selecciones por chain+resi)
+    for i, res in enumerate(residues):
+        sel = {'chain': res['chain'], 'resi': str(res['resSeq'])}
+        # apply a cartoon color per residue
+        view.addStyle(sel, {'cartoon': {'color': hex_colors[i]}})
+
+    # Highlighted sites: draw EITHER spheres or sidechains
+    if highlighted_sites is not None:
+        hlist = np.asarray(highlighted_sites).astype(int).ravel().tolist()
+        for pos in hlist:
+            idx = int(pos) - index_base
+            if idx < 0 or idx >= n_res:
+                print(f"warning: highlighted site {pos} (index_base={index_base}) out of range -> skipped")
+                continue
+    
+            res = residues[idx]
+            x, y, z = res['ca']
+            sel = {'chain': res['chain'], 'resi': str(res['resSeq'])}
+    
+            if highlight_style == 'sphere':
+                view.addSphere({
+                    'center': {'x': x, 'y': y, 'z': z},
+                    'radius': sphere_radius,
+                    'color': sphere_color,
+                    'opacity': 1.0
+                })
+            elif highlight_style == 'stick':
+                view.addStyle(sel, {'stick': {'radius': 0.3}, 'sphere': {'scale': 0.3}})
+            else:
+                raise ValueError(f"Unknown highlight_style '{highlight_style}'. Use 'sphere' or 'stick'.")
+    # final touches
+    view.setBackgroundColor('0xFFFFFF')  # white background
+    return view
 
 
 def mean_contact_frustration_heatmap(pdb_path, df_contact, fold_name = None, path = None, replace_fig = False, vmin_c = None, vmax_c = None, 
