@@ -181,7 +181,7 @@ def load_potts(simetric_potts_model_path, file_format, return_awsem_model = Fals
             potts_model_dca = pickle.load(file)
     
     else:
-        potts_model_dca = np.load(simetric_potts_model_path)
+        potts_model_dca = np.load(simetric_potts_model_path, allow_pickle=True)
 
     h = potts_model_dca["h"]
     J = potts_model_dca["J"]
