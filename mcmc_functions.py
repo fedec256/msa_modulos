@@ -1,10 +1,11 @@
 import numpy as np
 import numba
 from numba import njit
-import random
 from dca_functions import E_tot
 from joblib import Parallel, delayed
 from typing import Optional
+import os
+import datetime
 
 #Estas de acá abajo son funciones para generar secuencias optimizadas con el campo por pasos de montecarlo por metropoli hastings
 @njit(inline="always")
@@ -24,10 +25,10 @@ def MCseq(nsteps:int, npos:int, Naa:int, temp:float,
     -----------
 
     """
-    if seq0 is not None:
-        seq = seq0
+    if seq0 is None:
+        seq = np.random.randint(0, Naa, size=npos) #random sequence
     else:
-        seq=np.random.randint(0, Naa, size=npos) # generate random sequence
+        seq = seq0.copy()
 
     e0=E_tot(seq,Hi,Jij)
     
@@ -37,11 +38,16 @@ def MCseq(nsteps:int, npos:int, Naa:int, temp:float,
     save_count = 0
     
     for i in range(nsteps):
-        residues=list(range(0,Naa))
+#        residues=list(range(0,Naa))
         x=np.random.randint(npos) # choice random position in sequence 
         old_res=seq[x]
-        residues.remove(old_res)
-        seq[x] = np.random.choice(np.array(residues)) # mutation
+#        residues.remove(old_res)
+
+        new_res = old_res
+        while new_res == old_res:            #choice random aa until is different from original.
+            new_res = np.random.randint(Naa) #should it also accept the same aa at each step???
+
+        seq[x] = new_res # mutation
         ef=E_tot(seq,Hi,Jij) # energy after mutation
         de=ef-e0 # change in energy
         # metropolis criterium
@@ -52,14 +58,33 @@ def MCseq(nsteps:int, npos:int, Naa:int, temp:float,
                 e0=ef
             else:
                 seq[x] = old_res # don't accept    
-        if i%save_each==0 and i>=transient:
+        if (i - transient) % save_each == 0 and i>=transient:
 
-            seq_to_save[int((i-transient)/save_each),:] = seq.copy()
+            seq_to_save[save_count,:] = seq.copy()
             energies[save_count] = e0
             save_count += 1
     return energies, seq_to_save
     
-
+def generate_trajectory_from_random_to_folded(
+        path, 
+        Hi,Jij,
+        NSeq, temp=1.0, transient=0, save_each=1):
+    
+    npos,Naa=Hi.shape
+    nsteps=transient+save_each*NSeq
+    energies_evolving, sequences_evolving = MCseq(
+        nsteps, npos, Naa, temp,
+        Hi, Jij,
+        save_each ,transient)
+    
+    #Create a unique name por each simulation
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    sequences_file_name = f'sequences_from_random_{timestamp}.npy'
+    energies_file_name = f'energies_from_random_{timestamp}.npy'
+    saving_dir = os.path.join(path, f"simulation_{timestamp}")
+    os.makedirs(saving_dir, exist_ok=True)
+    np.save(os.path.join(saving_dir,sequences_file_name), sequences_evolving)
+    np.save(os.path.join(saving_dir,energies_file_name), energies_evolving)
 
 def generate_seq_ensemble(path,name_energies, name_seqs, num_cores,Hi,Jij,NSeq,temp=1.0,transient=40000,save_each=5000):
     
