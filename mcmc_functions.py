@@ -6,6 +6,7 @@ from joblib import Parallel, delayed
 from typing import Optional
 import os
 import datetime
+from numba.typed import List
 
 #Estas de acá abajo son funciones para generar secuencias optimizadas con el campo por pasos de montecarlo por metropoli hastings
 @njit(inline="always")
@@ -65,6 +66,119 @@ def MCseq(nsteps:int, npos:int, Naa:int, temp:float,
             save_count += 1
     return energies, seq_to_save
     
+@njit(inline="always")
+def MCseq_until_energy_treshold(npos:int, Naa:int, temp:float, 
+                       Hi:np.ndarray, Jij:np.ndarray,
+                       target_energy:float, temp_freeze = 1e-12, 
+                       save_each = 1, 
+                       seq0:Optional[np.ndarray] = None, 
+                       max_steps = 1000000):
+    if seq0 is None:
+        seq = np.random.randint(0, Naa, size=npos)
+    else:
+        seq = seq0.copy()
+
+    e0 = E_tot(seq, Hi, Jij)
+
+    max_saves = (max_steps ) // save_each 
+    energies = np.zeros(max_saves)
+    seq_to_save=np.zeros((max_saves,npos),dtype=numba.int64)
+    save_count = 0
+
+    step = 0
+    current_temp = temp
+
+    while step < max_steps and e0 > target_energy:
+
+        # if treshold is surpassed, temp of freezing
+        if e0 <= target_energy:
+            current_temp = temp_freeze
+
+        # --- MCMC step ---
+        x = np.random.randint(npos)
+        old_res = seq[x]
+
+        new_res = old_res
+        while new_res == old_res: 
+            new_res = np.random.randint(Naa) #choice new until different
+
+        seq[x] = new_res
+        ef = E_tot(seq, Hi, Jij)
+        de = ef - e0
+
+        if de <= 0: #metropolis criterium same as before
+            e0 = ef
+        else:
+            if np.random.rand() < np.exp(-de / current_temp):
+                e0 = ef
+            else:
+                seq[x] = old_res
+
+        # save
+        if step % save_each == 0:
+            energies[save_count] = (e0)
+            seq_to_save[save_count] = seq
+            save_count += 1
+
+        step += 1
+
+    return energies[:save_count], seq_to_save[:save_count]
+
+
+def generate_trajectory_to_freeze(
+        path, 
+        Hi,Jij,
+        target_energy, temp=1.0, temp_freeze = 1e-12,
+        seq0=None,
+        max_steps=1000000, save_each=1, extra_steps = 10000):
+    
+    npos,Naa=Hi.shape
+    energies_to_treshold, sequences_to_treshold = MCseq_until_energy_treshold(
+        npos, Naa, temp,
+        Hi, Jij,
+        target_energy, temp_freeze, 
+        save_each, 
+        seq0, max_steps
+        )
+    
+    seq_final = sequences_to_treshold[-1]
+    energies_after_freezing, sequences_after_freezing = MCseq( #extra steps with Tfrozen
+        extra_steps, npos, Naa, temp_freeze,
+        Hi, Jij,
+        save_each ,transient = 0, seq0=seq_final)
+    
+    energies_freezing = np.concatenate([energies_to_treshold, energies_after_freezing])
+    sequences_freezing = np.concatenate([sequences_to_treshold, sequences_after_freezing])
+
+    
+
+
+    #Create a unique name por each simulation
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    sequences_file_name = f'sequences_to_freezing_{timestamp}.npy'
+    energies_file_name = f'energies_to_freezing_{timestamp}.npy'
+    params_file_name    = f"params_to_freezing_{timestamp}.npz"
+    saving_dir = os.path.join(path, f"simulation_to_freezing_{timestamp}")
+    os.makedirs(saving_dir, exist_ok=True)
+    np.save(os.path.join(saving_dir,sequences_file_name), sequences_freezing)
+    np.save(os.path.join(saving_dir,energies_file_name), energies_freezing)
+
+    np.savez(
+        os.path.join(saving_dir, params_file_name),
+        target_energy=target_energy,
+        temp=temp,
+        temp_freeze=temp_freeze,
+        max_steps=max_steps,
+        save_each=save_each,
+        npos=npos,
+        Naa=Naa,
+        seq0_provided=(seq0 is not None),
+        timestamp=timestamp
+    )
+
+
+
+
 def generate_trajectory_from_random_to_folded(
         path, 
         Hi,Jij,
@@ -81,11 +195,27 @@ def generate_trajectory_from_random_to_folded(
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     sequences_file_name = f'sequences_from_random_{timestamp}.npy'
     energies_file_name = f'energies_from_random_{timestamp}.npy'
-    saving_dir = os.path.join(path, f"simulation_{timestamp}")
+    params_file_name    = f"params_from_random_{timestamp}.npz"
+    saving_dir = os.path.join(path, f"simulation_from_random_{timestamp}")
     os.makedirs(saving_dir, exist_ok=True)
     np.save(os.path.join(saving_dir,sequences_file_name), sequences_evolving)
     np.save(os.path.join(saving_dir,energies_file_name), energies_evolving)
 
+    np.savez(
+        os.path.join(saving_dir, params_file_name),
+        temp=temp,
+        nsteps=nsteps,
+        save_each=save_each,
+        transient=transient,
+        npos=npos,
+        Naa=Naa,
+        timestamp=timestamp
+    )
+
+
+
+
+#this one i think is broken we should DESTROY!!! no, fix
 def generate_seq_ensemble(path,name_energies, name_seqs, num_cores,Hi,Jij,NSeq,temp=1.0,transient=40000,save_each=5000):
     
     """
