@@ -45,7 +45,7 @@ def seq_to_numpy(seq):
 
 def MSA_to_numpy(MSA):
     #un MSA guardado en un array de numpy con los aa en formato unicode, te lo transforma en un array de numpy de iguales dimensiones pero con numeritos
-    MSA_np = np.zeros([MSA.shape[0],MSA.shape[1]])
+    MSA_np = np.zeros([MSA.shape[0],MSA.shape[1]], dtype=np.int64)
     MSA_np.shape
     for seq in range(MSA.shape[0]):
         for i in range (MSA.shape[1]):

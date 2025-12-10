@@ -212,6 +212,69 @@ def generate_trajectory_from_random_to_folded(
         timestamp=timestamp
     )
 
+def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 20000):
+
+    nseq, npos = MSA.shape
+    Naa = Hi.shape[1]
+    
+    #Create a unique name por each simulation
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+#    sequences_file_name = f'frozen_alignment_{timestamp}.npy'
+#    energies_file_name = f'frozen_energies_{timestamp}.npy'
+    params_file_name    = f"frozen_params_{timestamp}.npz"
+    saving_dir = os.path.join(path, f"frozen_alignment_{timestamp}")
+    os.makedirs(saving_dir, exist_ok=True)
+
+#    np.save(os.path.join(saving_dir,sequences_file_name), frozen_alignment)
+#    np.save(os.path.join(saving_dir,energies_file_name), frozen_energies)
+
+    # trying with memmap files
+    frozen_alignment = np.memmap(
+        os.path.join(saving_dir, "frozen_alignment.dat"),
+        dtype=np.int64, mode='w+', shape=(nseq, npos)
+    )
+    frozen_energies = np.memmap(
+        os.path.join(saving_dir, "frozen_energies.dat"),
+        dtype=np.float64, mode='w+', shape=(nseq,)
+    )
+
+#    frozen_alignment = np.zeros((nseq, npos), dtype=np.int64)
+#    frozen_energies = np.zeros(nseq)
+    for i in range(nseq):
+        seq_i = MSA[i,:].copy()
+
+        frozen_energy_i, frozen_seq_i = MCseq(nsteps, npos, Naa, temp,
+                Hi,
+                Jij,
+                save_each = nsteps - transient, transient = transient, seq0 = seq_i    
+                )
+        frozen_energies[i] = frozen_energy_i[-1]
+        frozen_alignment[i,:] = frozen_seq_i[-1]
+
+    # flush to disk?
+    del frozen_alignment
+    del frozen_energies
+
+
+    np.savez(
+        os.path.join(saving_dir, params_file_name),
+        temp=temp,
+        nsteps=nsteps,
+        transient=transient,
+        npos=npos,
+        Naa=Naa,
+        timestamp=timestamp
+    )
+
+    np.savez(
+        os.path.join(saving_dir,"frozen_alignment_metadata.npz"),
+            dtype=MSA.dtype,
+            shape=MSA.shape)
+
+
+
+
+
 
 
 
