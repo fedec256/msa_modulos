@@ -212,44 +212,54 @@ def generate_trajectory_from_random_to_folded(
         timestamp=timestamp
     )
 
-def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 20000):
+def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 20000, 
+                       path_in_process:str = None):
 
     nseq, npos = MSA.shape
     Naa = Hi.shape[1]
     
-    #Create a unique name por each simulation
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-#    sequences_file_name = f'frozen_alignment_{timestamp}.npy'
-#    energies_file_name = f'frozen_energies_{timestamp}.npy'
-    params_file_name    = f"frozen_params_{timestamp}.npz"
-    saving_dir = os.path.join(path, f"frozen_alignment_{timestamp}")
-    os.makedirs(saving_dir, exist_ok=True)
+    if path_in_process is None:
+        #Create a unique name por each simulation
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        saving_dir = os.path.join(path, f"frozen_alignment_{timestamp}")
+        os.makedirs(saving_dir, exist_ok=True)
+    
+        #some new memmap files
+        frozen_alignment = np.memmap(
+            os.path.join(saving_dir, "frozen_alignment.dat"),
+            dtype=np.int64, mode='w+', shape=(nseq, npos)
+        )
+        frozen_energies = np.memmap(
+            os.path.join(saving_dir, "frozen_energies.dat"),
+            dtype=np.float64, mode='w+', shape=(nseq,)
+        )
 
-#    np.save(os.path.join(saving_dir,sequences_file_name), frozen_alignment)
-#    np.save(os.path.join(saving_dir,energies_file_name), frozen_energies)
+    else:
+        saving_dir = os.path.normpath(path_in_process)
 
-    # trying with memmap files
-    frozen_alignment = np.memmap(
-        os.path.join(saving_dir, "frozen_alignment.dat"),
-        dtype=np.int64, mode='w+', shape=(nseq, npos)
-    )
-    frozen_energies = np.memmap(
-        os.path.join(saving_dir, "frozen_energies.dat"),
-        dtype=np.float64, mode='w+', shape=(nseq,)
-    )
+        timestamp = os.path.basename(saving_dir).replace("frozen_alignment_", "") #getting timestamp from folder
 
-#    frozen_alignment = np.zeros((nseq, npos), dtype=np.int64)
-#    frozen_energies = np.zeros(nseq)
+        #existing memmap files
+        frozen_alignment = np.memmap(
+            os.path.join(saving_dir, "frozen_alignment.dat"),
+            dtype=np.int64, mode='r+', shape=(nseq, npos)
+        )
+        frozen_energies = np.memmap(
+            os.path.join(saving_dir, "frozen_energies.dat"),
+            dtype=np.float64, mode='r+', shape=(nseq,)
+        )
+
     for i in range(nseq):
-        seq_i = MSA[i,:].copy()
+        if frozen_energies[i] == 0:
+            seq_i = MSA[i,:].copy()
 
-        frozen_energy_i, frozen_seq_i = MCseq(nsteps, npos, Naa, temp,
-                Hi,
-                Jij,
-                save_each = nsteps - transient, transient = transient, seq0 = seq_i    
-                )
-        frozen_energies[i] = frozen_energy_i[-1]
-        frozen_alignment[i,:] = frozen_seq_i[-1]
+            frozen_energy_i, frozen_seq_i = MCseq(nsteps, npos, Naa, temp,
+                    Hi,
+                    Jij,
+                    save_each = nsteps - transient, transient = transient, seq0 = seq_i    
+                    )
+            frozen_energies[i] = frozen_energy_i[-1]
+            frozen_alignment[i,:] = frozen_seq_i[-1]
 
     # flush to disk?
     del frozen_alignment
@@ -257,7 +267,7 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 200
 
 
     np.savez(
-        os.path.join(saving_dir, params_file_name),
+        os.path.join(saving_dir, f"frozen_params_{timestamp}.npz"),
         temp=temp,
         nsteps=nsteps,
         transient=transient,
@@ -279,7 +289,7 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 200
 
 
 #this one i think is broken we should DESTROY!!! no, fix
-def generate_seq_ensemble(path,name_energies, name_seqs, num_cores,Hi,Jij,NSeq,temp=1.0,transient=40000,save_each=5000):
+def generate_seq_ensemble(path, num_cores,Hi,Jij,NSeq,temp=1.0,transient=40000,save_each=5000):
     
     """
     Descripción
@@ -301,8 +311,31 @@ def generate_seq_ensemble(path,name_energies, name_seqs, num_cores,Hi,Jij,NSeq,t
     energies_, seqs_= zip(*r)
     energies=np.concatenate(energies_)
     ali=np.concatenate(seqs_)
-    np.save(path+name_energies,energies)
-    np.save(path+name_seqs,ali)
+#    np.save(path+name_energies,energies)
+#    np.save(path+name_seqs,ali)
+
+    #Create a unique name por each simulation
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    sequences_file_name = f'ensemble_of_sequences_{timestamp}.npy'
+    energies_file_name = f'ensemble_of_energies_{timestamp}.npy'
+    params_file_name    = f"params_of_ensemble_{timestamp}.npz"
+    saving_dir = os.path.join(path, f"simulation_of_ensemble_{timestamp}")
+    os.makedirs(saving_dir, exist_ok=True)
+    np.save(os.path.join(saving_dir,sequences_file_name), ali)
+    np.save(os.path.join(saving_dir,energies_file_name), energies)
+
+    np.savez(
+        os.path.join(saving_dir, params_file_name),
+        temp=temp,
+        Nseq=NSeq,
+        nsteps=nsteps,
+        save_each=save_each,
+        transient=transient,
+        npos=npos,
+        Naa=Naa,
+        timestamp=timestamp
+    )
+
 
 #Estas dos de acá abajo sirven para ver el tiempo de montecarlo necesario para que dos secuencias dejen de estar autocorrelacionadas, será el tiempo que tendrás que 
 #simular entre un guardado y otro de los algoritmos anteriores. En general con 10000 pasos ya se pierde la autocorrelación entre dos secuencias, pero no está de más probar esto.
