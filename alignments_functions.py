@@ -1,6 +1,10 @@
 import numpy as np
 from scipy.spatial.distance import pdist,squareform
 from Bio import SeqIO
+from Bio.Align import substitution_matrices
+import dca_functions
+from numba import jit
+from numba import prange as parallel_range
 
 
 '''
@@ -101,7 +105,7 @@ def msa_subset(msa_path, outfile_path, n, seqs_weights, file_format = 'fasta'):
     ofile.close()    
 
 
-def get_eff(msa,eff_cutoff=0.8):
+def get_eff(msa,eff_cutoff=0.9):
   '''compute effective weight for each sequence'''
   ncol = msa.shape[1]
 
@@ -112,6 +116,46 @@ def get_eff(msa,eff_cutoff=0.8):
   msa_w = (msa_sm >= eff_cutoff).astype(float)
   msa_w = 1/np.sum(msa_w,-1)
   return msa_w
+
+@jit(nopython=True, parallel=True)
+def compute_sequences_weight_for_many_sequences(alignment_data=None, seqid=0.9):
+    """Computes weight of sequences. The weights are calculated by lumping
+    together sequences whose identity is greater that a particular threshold.
+    For example, if there are m similar sequences, each of them will be assigned
+    a weight of 1/m. Note that the effective number of sequences is the sum of
+    these weights.
+
+    Parameters
+    ----------
+        alignmnet_data : np.array()
+            Numpy 2d array of the alignment data, after the alignment is put in
+            integer representation
+        seqid : float
+            Value at which beyond this sequences are considered similar. Typical
+            values could be 0.7, 0.8, 0.9 and so on
+
+    Returns
+    -------
+        seqs_weight : np.array()
+            A 1d numpy array containing computed weights. This array has a size
+            of the number of sequences in the alignment data.
+    """
+    alignment_shape = alignment_data.shape
+    num_seqs = alignment_shape[0]
+    seqs_len = alignment_shape[1]
+    seqs_weight = np.zeros((num_seqs,), dtype=np.float64)
+    #count similar sequences
+    for i in parallel_range(num_seqs):
+        seq_i = alignment_data[i]
+        for j in range(num_seqs):
+            seq_j = alignment_data[j]
+            iid = np.sum(seq_i==seq_j)
+            if np.float64(iid)/np.float64(seqs_len) > seqid:
+                seqs_weight[i] += 1
+    #compute the weight of each sfreq(ali,npos,Naa,w)equence in the alignment
+    for i in range(num_seqs): seqs_weight[i] = 1.0/float(seqs_weight[i])
+    return seqs_weight
+
 
 def freq(MSA,states,w): #npos es el largo de cada secuencia del alineamiento
     
@@ -147,3 +191,57 @@ def freq(MSA,states,w): #npos es el largo de cada secuencia del alineamiento
 
     return fij,fi
 
+#Estas de blosum están super mal
+
+
+"""def blosum_distance_norm(seq1, seq2, substitution_matrix): #tendría que especificar que matrices acepto? ni loco no? 
+    assert len(seq1) == len(seq2)
+    
+    mat = substitution_matrices.load(substitution_matrix)
+
+    return sum(mat[a,a] - blosum_score(a, b, mat) for a, b in zip(seq1, seq2))"""
+
+
+def blosum_score(a, b, blosum_matrix):
+    key = (a, b)
+    if key in blosum_matrix:
+        return blosum_matrix[key]
+    key = (b, a)
+    if key in blosum_matrix:
+        return blosum_matrix[key]
+    return 0
+
+def blosum_distance_norm(seq1, seq2, blosum_matrix): #tendría que especificar que matrices acepto? ni loco no? 
+    assert len(seq1) == len(seq2)
+    
+#    mat = substitution_matrices.load(substitution_matrix)
+
+    return sum(blosum_matrix[a,a] - blosum_score(a, b, blosum_matrix) for a, b in zip(seq1, seq2))
+
+def blosum_distance_matrix(sequences, substitution_matrix = "BLOSUM62"):
+
+    blosum_matrix = substitution_matrices.load(substitution_matrix)
+
+    distance_blosum = np.zeros((len(sequences), len(sequences))) 
+    for i in range(len(sequences) - 1):
+        for j in range(i+1, len(sequences)):
+            distance_blosum[i,j] = blosum_distance_norm(sequences[i], sequences[j], blosum_matrix)
+    distance_blosum = distance_blosum + distance_blosum.T
+    return distance_blosum
+
+def distance_in_hi (sequences, potts_model_path, potts_file_format = "npz"):
+    hi_rbm = dca_functions.load_potts(potts_model_path, potts_file_format)["h"]
+
+    hi_RBM_by_seq_matrix = np.zeros(sequences.shape)
+    for i in range(sequences.shape[0]): #cada seq
+        for j in range(sequences.shape[1]): #cada pos del ali
+            hi_RBM_by_seq_matrix[i,j] = hi_rbm[j, int(sequences[i,j])] #la posicion j de la secuencia, el aminoacido que esta en la seq i y la pos j
+
+    distance_in_hi = np.zeros((len(sequences), len(sequences)))
+    for i in range(len(sequences) - 1):
+        for j in range(i+1, len(sequences)):
+            distance_in_hi[i,j] = np.sqrt(np.mean((hi_RBM_by_seq_matrix[i] - hi_RBM_by_seq_matrix[j])**2))
+
+    distance_in_hi = distance_in_hi + distance_in_hi.T
+
+    return distance_in_hi
