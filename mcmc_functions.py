@@ -5,7 +5,7 @@ from joblib import Parallel, delayed
 from typing import Optional
 import os
 import datetime
-from numba.typed import List
+#from numba.typed import List
 
 
 @jit(nopython=True)
