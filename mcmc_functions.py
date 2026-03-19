@@ -1,12 +1,11 @@
 import numpy as np
 import numba
-from numba import njit
+from numba import njit, jit
 from joblib import Parallel, delayed
 from typing import Optional
 import os
+from multiprocessing import cpu_count
 import datetime
-#from numba.typed import List
-
 
 @jit(nopython=True)
 def E_tot(seq,h,J):
@@ -238,7 +237,29 @@ def generate_trajectory_from_random_to_folded(
         timestamp=timestamp
     )
 
-def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 20000, 
+def run_single_sequence(i, MSA, nsteps, npos, Naa, temp, Hi, Jij, transient):
+    
+    seq_i = MSA[i, :].copy()
+
+    energies, seqs = MCseq(
+        nsteps,
+        npos,
+        Naa,
+        temp,
+        Hi,
+        Jij,
+        save_each = nsteps - transient,
+        transient = transient,
+        seq0 = seq_i
+    )
+
+    final_energy = energies[-1]
+    final_seq = seqs[-1]
+
+    return i, final_energy, final_seq
+
+
+def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 0, 
                        path_in_process:str = None):
 
     nseq, npos = MSA.shape
@@ -259,6 +280,7 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 200
             os.path.join(saving_dir, "frozen_energies.dat"),
             dtype=np.float64, mode='w+', shape=(nseq,)
         )
+        frozen_energies[:] = 0.0
 
     else:
         saving_dir = os.path.normpath(path_in_process)
@@ -275,21 +297,30 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 200
             dtype=np.float64, mode='r+', shape=(nseq,)
         )
 
-    for i in range(nseq):
-        if frozen_energies[i] == 0:
-            seq_i = MSA[i,:].copy()
+    indices = [i for i in range(nseq) if frozen_energies[i] == 0]
+    n_jobs = int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
 
-            frozen_energy_i, frozen_seq_i = MCseq(nsteps, npos, Naa, temp,
-                    Hi,
-                    Jij,
-                    save_each = nsteps - transient, transient = transient, seq0 = seq_i    
-                    )
-            frozen_energies[i] = frozen_energy_i[-1]
-            frozen_alignment[i,:] = frozen_seq_i[-1]
+    print(f"Total secuencias: {nseq}")
+    print(f"Pendientes: {len(indices)}")
+
+    if len(indices) == 0:
+        print("Nada para hacer, todo ya computado.")
+        return
+
+    results = Parallel(n_jobs=n_jobs, verbose=10)(
+        delayed(run_single_sequence)(
+            i, MSA, nsteps, npos, Naa, temp, Hi, Jij, transient
+        )
+        for i in indices
+    )
+
+    for i, energy, seq in results:
+        frozen_energies[i] = energy
+        frozen_alignment[i, :] = seq
 
     # flush to disk?
-    del frozen_alignment
-    del frozen_energies
+    frozen_alignment.flush()
+    frozen_energies.flush()
 
 
     np.savez(
