@@ -248,7 +248,7 @@ def run_single_sequence(i, MSA, nsteps, npos, Naa, temp, Hi, Jij, transient):
         temp,
         Hi,
         Jij,
-        save_each = nsteps - transient,
+        save_each = 1,
         transient = transient,
         seq0 = seq_i
     )
@@ -271,15 +271,8 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 0,
         saving_dir = os.path.join(path, f"frozen_alignment_{timestamp}")
         os.makedirs(saving_dir, exist_ok=True)
     
-        #some new memmap files
-        frozen_alignment = np.memmap(
-            os.path.join(saving_dir, "frozen_alignment.dat"),
-            dtype=np.int64, mode='w+', shape=(nseq, npos)
-        )
-        frozen_energies = np.memmap(
-            os.path.join(saving_dir, "frozen_energies.dat"),
-            dtype=np.float64, mode='w+', shape=(nseq,)
-        )
+        frozen_alignment = np.zeros((nseq, npos), dtype=np.int64)
+        frozen_energies = np.zeros(nseq)
         frozen_energies[:] = 0.0
 
     else:
@@ -287,15 +280,8 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 0,
 
         timestamp = os.path.basename(saving_dir).replace("frozen_alignment_", "") #getting timestamp from folder
 
-        #existing memmap files
-        frozen_alignment = np.memmap(
-            os.path.join(saving_dir, "frozen_alignment.dat"),
-            dtype=np.int64, mode='r+', shape=(nseq, npos)
-        )
-        frozen_energies = np.memmap(
-            os.path.join(saving_dir, "frozen_energies.dat"),
-            dtype=np.float64, mode='r+', shape=(nseq,)
-        )
+        frozen_alignment = np.load(os.path.join(saving_dir, "frozen_alignment.npy"))
+        frozen_energies  = np.load(os.path.join(saving_dir, "frozen_energies.npy"))
 
     indices = [i for i in range(nseq) if frozen_energies[i] == 0]
     n_jobs = int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
@@ -307,7 +293,7 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 0,
         print("Nada para hacer, todo ya computado.")
         return
 
-    results = Parallel(n_jobs=n_jobs, verbose=10)(
+    results = Parallel(n_jobs=n_jobs, verbose=5)(
         delayed(run_single_sequence)(
             i, MSA, nsteps, npos, Naa, temp, Hi, Jij, transient
         )
@@ -318,10 +304,9 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 0,
         frozen_energies[i] = energy
         frozen_alignment[i, :] = seq
 
-    # flush to disk?
-    frozen_alignment.flush()
-    frozen_energies.flush()
 
+    np.save(os.path.join(saving_dir, "frozen_alignment.npy"), frozen_alignment)
+    np.save(os.path.join(saving_dir, "frozen_energies.npy"), frozen_energies)
 
     np.savez(
         os.path.join(saving_dir, f"frozen_params_{timestamp}.npz"),
@@ -332,11 +317,6 @@ def freezing_alignment(path, MSA, nsteps, Hi, Jij, temp = 1e-16, transient = 0,
         Naa=Naa,
         timestamp=timestamp
     )
-
-    np.savez(
-        os.path.join(saving_dir,"frozen_alignment_metadata.npz"),
-            dtype=MSA.dtype,
-            shape=MSA.shape)
 
 
 
