@@ -1,12 +1,38 @@
 import numpy as np
 import numba
 from numba import njit
-from dca_functions import E_tot
 from joblib import Parallel, delayed
 from typing import Optional
 import os
 import datetime
 from numba.typed import List
+
+
+@jit(nopython=True)
+def E_tot(seq,h,J):
+    
+    """
+    Descripción
+
+    Parámetros
+    -----------
+
+    Returns
+    -----------
+
+    """
+    
+
+    E_seq = 0
+    l = len(seq)
+    for i in range (l):
+        ai = int(seq[i]) #acá tengo cual es el aminoácido en la posicion i, ai
+        jij = 0
+        for j in range (i+1, l):
+            bj = int(seq[j]) #acá tengo cual es el aminoacido en la posicion j, bj
+            jij += J[i,j,ai,bj] #ahí tengo todos los acoplamientos del aminoácido ai con todos los bj
+        E_seq += - (h[i,ai]) - jij
+    return E_seq
 
 #Estas de acá abajo son funciones para generar secuencias optimizadas con el campo por pasos de montecarlo por metropoli hastings
 @njit(inline="always")
